@@ -323,79 +323,145 @@ class Embeddings
      * @throws \Exception
      * @todo support splitting too long sentences
      */
+    // protected function splitIntoChunks($text)
+    // {
+    //     $sentenceSplitter = new Sentence();
+    //     $tiktok = $this->getTokenEncoder();
+    
+    //     $chunks = [];
+    //     $sentences = $sentenceSplitter->split($text);
+    
+    //     $chunklen = 0;
+    //     $chunk = '';
+    //     while ($sentence = array_shift($sentences)) {
+    //         $slen = count($tiktok->encode($sentence));
+    //         if ($slen > $this->getChunkSize()) {
+    //             // sentence is too long, we need to split it further
+    //             if ($this->logger instanceof CLI) {
+    //                 $this->logger->warning(
+    //                     'Sentence too long, splitting it into smaller parts'
+    //                 );
+    //             }
+    
+    //             // Split the sentence into smaller parts
+    //             $subSentences = $this->splitLongSentence($sentence, $tiktok);
+    //             foreach ($subSentences as $subSentence) {
+    //                 $subSlen = count($tiktok->encode($subSentence));
+    //                 if ($chunklen + $subSlen < $this->getChunkSize()) {
+    //                     // add to current chunk
+    //                     $chunk .= $subSentence;
+    //                     $chunklen += $subSlen;
+    
+    //                     // remember sentence for overlap check
+    //                     $this->rememberSentence($subSentence);
+    //                 } else {
+    //                     // add current chunk to result
+    //                     $chunk = trim($chunk);
+    //                     if ($chunk !== '') {
+    //                         $chunks[] = $chunk;
+    //                     }
+    
+    //                     // start new chunk with remembered sentences
+    //                     $chunk = implode(' ', $this->sentenceQueue);
+    //                     $chunk .= $subSentence;
+    //                     $chunklen = count($tiktok->encode($chunk));
+    //                 }
+    //             }
+    //         } else {
+    //             if ($chunklen + $slen < $this->getChunkSize()) {
+    //                 // add to current chunk
+    //                 $chunk .= $sentence;
+    //                 $chunklen += $slen;
+    
+    //                 // remember sentence for overlap check
+    //                 $this->rememberSentence($sentence);
+    //             } else {
+    //                 // add current chunk to result
+    //                 $chunk = trim($chunk);
+    //                 if ($chunk !== '') {
+    //                     $chunks[] = $chunk;
+    //                 }
+    
+    //                 // start new chunk with remembered sentences
+    //                 $chunk = implode(' ', $this->sentenceQueue);
+    //                 $chunk .= $sentence;
+    //                 $chunklen = count($tiktok->encode($chunk));
+    //             }
+    //         }
+    //     }
+    
+    //     $chunks[] = trim($chunk);
+
+    //     return $chunks;
+    // }
     protected function splitIntoChunks($text)
     {
         $sentenceSplitter = new Sentence();
         $tiktok = $this->getTokenEncoder();
-    
+
         $chunks = [];
         $sentences = $sentenceSplitter->split($text);
-    
-        $chunklen = 0;
+        if (empty($sentences)) {
+            return [];
+        }
+
         $chunk = '';
+        $chunklen = 0;
+
         while ($sentence = array_shift($sentences)) {
             $slen = count($tiktok->encode($sentence));
+
+            // Handle long sentences
             if ($slen > $this->getChunkSize()) {
-                // sentence is too long, we need to split it further
-                if ($this->logger instanceof CLI) {
-                    $this->logger->warning(
-                        'Sentence too long, splitting it into smaller parts'
-                    );
-                }
-    
-                // Split the sentence into smaller parts
+                $this->logger?->warning('Sentence too long, splitting it into smaller parts');
                 $subSentences = $this->splitLongSentence($sentence, $tiktok);
                 foreach ($subSentences as $subSentence) {
-                    $subSlen = count($tiktok->encode($subSentence));
-                    if ($chunklen + $subSlen < $this->getChunkSize()) {
-                        // add to current chunk
-                        $chunk .= $subSentence;
-                        $chunklen += $subSlen;
-    
-                        // remember sentence for overlap check
-                        $this->rememberSentence($subSentence);
-                    } else {
-                        // add current chunk to result
-                        $chunk = trim($chunk);
-                        if ($chunk !== '') {
-                            $chunks[] = $chunk;
-                        }
-    
-                        // start new chunk with remembered sentences
-                        $chunk = implode(' ', $this->sentenceQueue);
-                        $chunk .= $subSentence;
-                        $chunklen = count($tiktok->encode($chunk));
-                    }
+                    $this->processSentence($subSentence, $chunk, $chunklen, $chunks, $tiktok);
                 }
             } else {
-                if ($chunklen + $slen < $this->getChunkSize()) {
-                    // add to current chunk
-                    $chunk .= $sentence;
-                    $chunklen += $slen;
-    
-                    // remember sentence for overlap check
-                    $this->rememberSentence($sentence);
-                } else {
-                    // add current chunk to result
-                    $chunk = trim($chunk);
-                    if ($chunk !== '') {
-                        $chunks[] = $chunk;
-                    }
-    
-                    // start new chunk with remembered sentences
-                    $chunk = implode(' ', $this->sentenceQueue);
-                    $chunk .= $sentence;
-                    $chunklen = count($tiktok->encode($chunk));
-                }
+                $this->processSentence($sentence, $chunk, $chunklen, $chunks, $tiktok);
             }
         }
-    
-        $chunks[] = trim($chunk);
+
+        // Add the last chunk
+        if (trim($chunk) !== '') {
+            $chunks[] = trim($chunk);
+        }
 
         return $chunks;
     }
-    
 
+
+    // protected function splitLongSentence($sentence, $tiktok)
+    // {
+    //     $words = explode(' ', $sentence);
+    //     $subSentences = [];
+    //     $currentSubSentence = '';
+    //     $currentSubSentenceLen = 0;
+    //     $chunkSize = $this->getChunkSize();
+    
+    //     foreach ($words as $word) {
+    //         $wordLen = count($tiktok->encode($word));
+    
+    //         // If adding this word would exceed the chunk size, finalize the current sub-sentence
+    //         if ($currentSubSentenceLen + $wordLen > $chunkSize) {
+    //             $subSentences[] = trim($currentSubSentence);
+    //             $currentSubSentence = '';
+    //             $currentSubSentenceLen = 0;
+    //         }
+    
+    //         // Add the word to the current sub-sentence
+    //         $currentSubSentence .= $word . ' ';
+    //         $currentSubSentenceLen += $wordLen;
+    //     }
+    
+    //     // Add the last sub-sentence if it's not empty
+    //     if (trim($currentSubSentence) !== '') {
+    //         $subSentences[] = trim($currentSubSentence);
+    //     }
+    
+    //     return $subSentences;
+    // }
     protected function splitLongSentence($sentence, $tiktok)
     {
         $words = explode(' ', $sentence);
@@ -406,24 +472,38 @@ class Embeddings
 
         foreach ($words as $word) {
             $wordLen = count($tiktok->encode($word));
-            if ($currentSubSentenceLen + $wordLen < $chunkSize) {
-                $currentSubSentence .= $word . ' ';
-                $currentSubSentenceLen += $wordLen;
-            } else {
-                // add current sub-sentence to result
+            if ($currentSubSentenceLen + $wordLen > $chunkSize) {
                 $subSentences[] = trim($currentSubSentence);
-                // start new sub-sentence
-                $currentSubSentence = $word . ' ';
-                $currentSubSentenceLen = $wordLen;
+                $currentSubSentence = '';
+                $currentSubSentenceLen = 0;
             }
+
+            $currentSubSentence .= $word . ' ';
+            $currentSubSentenceLen += $wordLen;
         }
-        // add last sub-sentence to result
-        if ($currentSubSentence !== '') {
+
+        if (trim($currentSubSentence) !== '') {
             $subSentences[] = trim($currentSubSentence);
         }
 
         return $subSentences;
     }
+
+    protected function processSentence($sentence, &$chunk, &$chunklen, &$chunks, $tiktok)
+    {
+        $slen = count($tiktok->encode($sentence));
+
+        if ($chunklen + $slen > $this->getChunkSize()) {
+            $chunks[] = trim($chunk);
+            $chunk = '';
+            $chunklen = 0;
+        }
+
+        $chunk .= $sentence . ' ';
+        $chunklen += $slen;
+    }
+
+    
 
     /**
      * Add a sentence to the queue of remembered sentences
