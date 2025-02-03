@@ -327,42 +327,85 @@ class Embeddings
     {
         $sentenceSplitter = new Sentence();
         $tiktok = $this->getTokenEncoder();
-
+    
         $chunks = [];
         $sentences = $sentenceSplitter->split($text);
-
+    
         $chunklen = 0;
         $chunk = '';
+    
         while ($sentence = array_shift($sentences)) {
             $slen = count($tiktok->encode($sentence));
+    
             if ($slen > $this->getChunkSize()) {
-                // sentence is too long, we need to split it further
-                if ($this->logger instanceof CLI) $this->logger->warning(
-                    'Sentence too long, splitting not implemented yet'
-                );
-                continue;
+                // Sentence is too long, split into smaller parts
+                if ($this->logger instanceof CLI) {
+                    $this->logger->warning(
+                        'Sentence too long, splitting it into smaller parts'
+                    );
+                }
+    
+                // Push split sentences to the front of the queue
+                array_unshift($sentences, ...$this->splitLongSentence($sentence, $tiktok));
+                continue; // Restart loop with the newly inserted sentences
             }
-
+    
             if ($chunklen + $slen < $this->getChunkSize()) {
-                // add to current chunk
+                // Add to current chunk
                 $chunk .= $sentence;
                 $chunklen += $slen;
-                // remember sentence for overlap check
+    
+                // Remember sentence for overlap check
                 $this->rememberSentence($sentence);
             } else {
-                // add current chunk to result
+                // Add current chunk to result
                 $chunk = trim($chunk);
-                if ($chunk !== '') $chunks[] = $chunk;
-
-                // start new chunk with remembered sentences
+                if ($chunk !== '') {
+                    $chunks[] = $chunk;
+                }
+    
+                // Start new chunk with remembered sentences
                 $chunk = implode(' ', $this->sentenceQueue);
                 $chunk .= $sentence;
                 $chunklen = count($tiktok->encode($chunk));
             }
         }
-        $chunks[] = $chunk;
-
+    
+        // Add the last chunk if not empty
+        if (trim($chunk) !== '') {
+            $chunks[] = trim($chunk);
+        }
+    
         return $chunks;
+    }
+
+    protected function splitLongSentence($sentence, $tiktok)
+    {
+        $words = explode(' ', $sentence);
+        $subSentences = [];
+        $currentSubSentence = '';
+        $currentSubSentenceLen = 0;
+        $chunkSize = $this->getChunkSize();
+
+        foreach ($words as $word) {
+            $wordLen = count($tiktok->encode($word));
+            if ($currentSubSentenceLen + $wordLen < $chunkSize) {
+                $currentSubSentence .= $word . ' ';
+                $currentSubSentenceLen += $wordLen;
+            } else {
+                // add current sub-sentence to result
+                $subSentences[] = trim($currentSubSentence);
+                // start new sub-sentence
+                $currentSubSentence = $word . ' ';
+                $currentSubSentenceLen = $wordLen;
+            }
+        }
+        // add last sub-sentence to result
+        if ($currentSubSentence !== '') {
+            $subSentences[] = trim($currentSubSentence);
+        }
+
+        return $subSentences;
     }
 
     /**
